@@ -10,6 +10,7 @@ REST API สำหรับคำนวณปริมาณน้ำมัน�
 - [API](#api)
 - [การทดสอบ API](#การทดสอบ-api)
 - [การใช้งานด้วย PM2](#การใช้งานด้วย-pm2)
+- [การเปิดใช้งานในวง LAN](#การเปิดใช้งานในวง-lan)
 - [โครงสร้างโปรเจกต์](#โครงสร้างโปรเจกต์)
 
 ## ความต้องการของระบบ
@@ -43,6 +44,7 @@ Server running at http://localhost:8789
 | ค่า | ที่อยู่ | ค่าเริ่มต้น | หมายเหตุ |
 |---|---|---|---|
 | `PORT` | environment variable | `8789` | พอร์ตที่ server เปิดรับ |
+| `HOST` | environment variable | `0.0.0.0` | `0.0.0.0` = เครื่องอื่นในวง LAN เข้าได้, `127.0.0.1` = เข้าได้เฉพาะเครื่องนี้ |
 | `FUEL_PRICE_PER_LITER` | `index.js` | `35` | ราคาน้ำมัน (บาท/ลิตร) |
 | `vehicles` | `index.js` | 2 คัน | รายการรถและอัตราสิ้นเปลือง (กม./ลิตร) |
 
@@ -268,6 +270,81 @@ pm2 save
 ```bash
 pm2 install pm2-logrotate
 ```
+
+## การเปิดใช้งานในวง LAN
+
+ค่าเริ่มต้น server เปิดรับที่ `0.0.0.0` อยู่แล้ว เครื่องอื่นในวง LAN เดียวกันจึงเรียกใช้ได้ ขั้นตอนที่ต้องทำมีแค่หา IP ของเครื่อง และเปิด firewall
+
+### 1. หา IP ของเครื่อง server
+
+ตอนเริ่ม server จะแสดง IP ทุกการ์ดเครือข่าย:
+
+```
+Server running at http://localhost:8789
+  LAN: http://192.168.1.50:8789  (Ethernet)
+  LAN: http://172.25.176.1:8789  (vEthernet (WSL))
+```
+
+ให้ใช้ IP ที่อยู่วงเดียวกับเครื่องที่จะเรียกใช้ (ส่วนใหญ่ขึ้นต้นด้วย `192.168.`) ส่วน IP ของ WSL, Hyper-V (`Default Switch`) และ VirtualBox (`192.168.56.x`) เป็นเครือข่ายภายในเครื่อง เครื่องอื่นเข้าไม่ได้
+
+ดูด้วยคำสั่งก็ได้: `ipconfig` (Windows) หรือ `ip addr` (Linux)
+
+### 2. เปิด firewall
+
+**Windows** — เปิด PowerShell แบบ **Run as Administrator**:
+
+```powershell
+# ตรวจว่าเครือข่ายเป็น Private (ถ้าเป็น Public เครื่องอื่นจะเข้าไม่ได้)
+Get-NetConnectionProfile
+
+# ถ้าเป็น Public และเป็นเครือข่ายที่ไว้ใจได้ (บ้าน/ออฟฟิศ) ให้เปลี่ยนเป็น Private
+Set-NetConnectionProfile -InterfaceAlias "ชื่อ InterfaceAlias" -NetworkCategory Private
+
+# อนุญาตพอร์ต 8789 บนเครือข่าย Private
+New-NetFirewallRule -DisplayName "fuel-api (TCP 8789)" -Direction Inbound `
+  -Protocol TCP -LocalPort 8789 -Action Allow -Profile Private
+```
+
+ถ้าตอนรัน node ครั้งแรก Windows ถามว่า "Allow access" แล้วเลือก Private networks ไว้แล้ว อาจไม่ต้องเพิ่ม rule นี้ แต่ rule นั้นผูกกับ path ของ `node.exe` ถ้าเปลี่ยนเวอร์ชัน Node (เช่นด้วย nvm) จะใช้ไม่ได้ การเปิดตามพอร์ตแบบด้านบนจึงแน่นอนกว่า
+
+**Linux (ufw):**
+
+```bash
+sudo ufw allow 8789/tcp
+```
+
+### 3. ทดสอบจากเครื่องอื่น
+
+เปิด browser บนมือถือหรือคอมเครื่องอื่นในวง LAN เดียวกัน:
+
+```
+http://192.168.1.50:8789/vehicles
+```
+
+หรือใช้คำสั่ง (แทน IP ด้วยของเครื่อง server):
+
+```bash
+curl -X POST http://192.168.1.50:8789/calculate-fuel \
+  -H "Content-Type: application/json" \
+  -d '{"vehicleId":1,"distance":100}'
+```
+
+### ถ้าเครื่องอื่นเข้าไม่ได้
+
+| อาการ | สาเหตุที่เป็นไปได้ |
+|---|---|
+| เข้า `localhost` ได้ แต่เข้าด้วย IP จากเครื่องอื่นไม่ได้ | firewall ยังไม่เปิด หรือเครือข่ายเป็น Public |
+| เข้าได้บางวัน บางวันไม่ได้ | IP ของ server เปลี่ยน (DHCP) ให้ตั้ง DHCP reservation ที่ router หรือกำหนด IP คงที่ |
+| เครื่องอื่นต่อ Wi-Fi สำหรับแขก (Guest) | Guest Wi-Fi มักแยกเครือข่ายออกจาก LAN หลัก |
+
+ตรวจว่าพอร์ตเปิดหรือไม่ จากเครื่อง Windows อีกเครื่อง:
+
+```powershell
+Test-NetConnection -ComputerName 192.168.1.50 -Port 8789
+# TcpTestSucceeded : True = เชื่อมต่อได้
+```
+
+> **ความปลอดภัย:** API นี้ยังไม่มีระบบยืนยันตัวตน ใช้ได้เฉพาะในเครือข่ายที่ไว้ใจได้ ห้าม forward พอร์ตออกอินเทอร์เน็ต ถ้าต้องการให้เข้าได้เฉพาะเครื่องตัวเอง ให้ตั้ง `HOST=127.0.0.1`
 
 ## โครงสร้างโปรเจกต์
 

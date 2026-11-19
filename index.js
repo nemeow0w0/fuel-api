@@ -1,10 +1,12 @@
 import express from "express";
+import os from "node:os";
 
 
 
 const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 8789;
+const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = เปิดให้เครื่องอื่นในวง LAN เข้าได้, 127.0.0.1 = เฉพาะเครื่องนี้
 
 const vehicles = [
     { id: 1, name: "รถกระบะ 4 ล้อ", fuelRate: 10 }, // 10 km/l
@@ -59,7 +61,18 @@ app.post("/calculate-fuel", (req, res) => {
 })
 
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log(`Server running at http://localhost:${PORT}`);
+
+    if (HOST === "0.0.0.0") {
+        // แสดง IP ของเครื่องนี้ในวง LAN เพื่อให้เครื่องอื่นเรียกใช้
+        for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+            for (const addr of addrs ?? []) {
+                if (addr.family === "IPv4" && !addr.internal) {
+                    console.log(`  LAN: http://${addr.address}:${PORT}  (${name})`);
+                }
+            }
+        }
+    }
 });
  
