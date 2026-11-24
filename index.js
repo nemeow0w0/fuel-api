@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from "express";
 import os from "node:os";
 
@@ -6,7 +7,14 @@ import os from "node:os";
 const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 8789;
-const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = เปิดให้เครื่องอื่นในวง LAN เข้าได้, 127.0.0.1 = เฉพาะเครื่องนี้
+const HOST = process.env.HOST || "127.0.0.1"; // 0.0.0.0 = เปิดให้เครื่องอื่นในวง LAN เข้าได้, 127.0.0.1 = เฉพาะเครื่องนี้
+
+const SERVICE_NAME = process.env.SERVICE_NAME || "fuel-api";
+
+// ไว้เช็คว่าตัวไหนตอบ
+app.get("/", (req, res) => {
+  res.json({ service: SERVICE_NAME, port: Number(PORT) });
+});
 
 const vehicles = [
     { id: 1, name: "รถกระบะ 4 ล้อ", fuelRate: 10 }, // 10 km/l
